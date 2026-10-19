@@ -8,8 +8,8 @@
 # else the first Apple Development one, else ad hoc. A real identity keeps the login keychain's
 # device key and the privacy grants (Local Network, Accessibility) across rebuilds and copies to
 # another Mac: both name the signature's designated requirement, which an ad hoc signature changes
-# with every build. Notarizing uses the notarytool profile SILL_NOTARY_PROFILE (sill-notary). The icon is Sill.app's, taken
-# from .build/Sill.app when Scripts/make-app.sh has built it.
+# with every build. Notarizing uses the notarytool profile SILL_NOTARY_PROFILE (sill-notary). The icon is
+# design/ViewerIcon.svg (Scripts/make-client-icon.sh); Packaging/Client.entitlements lets it use the microphone.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 config=release; open_after=0; notarize=0
@@ -49,11 +49,11 @@ cat > "$helper/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(git rev-list --count HEAD 2>/dev/null || echo 1)" "$app/Contents/Info.plist"
-if [ -f .build/Sill.app/Contents/Resources/AppIcon.icns ]; then
-    cp .build/Sill.app/Contents/Resources/AppIcon.icns "$app/Contents/Resources/"
-    [ -f .build/Sill.app/Contents/Resources/Assets.car ] && cp .build/Sill.app/Contents/Resources/Assets.car "$app/Contents/Resources/"
+# The icon: Sill's art with the viewer's badge (design/ViewerIcon.svg), as a .icns made without actool.
+if icns="$(Scripts/make-client-icon.sh)"; then
+    cp "$icns" "$app/Contents/Resources/AppIcon.icns"
 else
-    echo "note: no icon (run Scripts/make-app.sh once to make Sill.app's)" >&2
+    echo "warning: no icon (Scripts/make-client-icon.sh failed)" >&2
 fi
 ids="$(security find-identity -v -p codesigning 2>/dev/null || true)"
 identity="${SILL_SIGN_IDENTITY:-$(echo "$ids" | awk '/"Developer ID Application: / { print $2; exit }')}"

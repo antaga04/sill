@@ -816,6 +816,9 @@ final class StreamClient: ObservableObject {
     @Published var desktopDisplay: UInt32?
     /// The side streams this device shows (kind 29), sent again on each new connection. Main thread.
     private(set) var sideRequest: SideStreamRequest?
+    /// The last `sideRequest` reached the host; false while the host could not take it, so the same
+    /// request goes out once it can (its list said `audio` after the request was made). Main thread.
+    private var sideRequestSent = false
     /// The session moved to a new connection (a better path, or home): what the Mac keeps per
     /// connection is asked for again there (ClipboardSync). Main thread.
     var onMoved: (() -> Void)?
@@ -2440,7 +2443,7 @@ final class StreamClient: ObservableObject {
         menusMoved()
         // The Mac keeps the windows shown besides the picked one and the clipboard's subscription per
         // connection too, and forgets them when the old one goes: both again on the new one.
-        if let side = sideRequest, hostSideStreams > 0 { send(.sideStreams, payload: Wire.encode(side)) }
+        if let side = sideRequest, takesSideRequest(side) { send(.sideStreams, payload: Wire.encode(side)) }
         onMoved?()
         #if canImport(UIKit)
         // The Mac keeps the clipboard's subscription per connection: the new one subscribes too.
@@ -3194,6 +3197,7 @@ final class StreamClient: ObservableObject {
         hostClipboard = nil
         hostAudio = false
         hostMicrophone = false
+        sideRequestSent = false
         hostFileDrop = false
         hostLiveDrag = false
         hostDockMenu = false
@@ -3776,7 +3780,8 @@ final class StreamClient: ObservableObject {
                     // their top level now and again whenever it changes (a Mac from before them skips it).
                     self.subscribeToMenus()
                     // The windows shown besides the picked one, on this new connection too.
-                    if let side = self.sideRequest, (list.sideStreams ?? 0) > 0 { self.send(.sideStreams, payload: Wire.encode(side)) }
+                    if let side = self.sideRequest, self.takesSideRequest(side) { self.send(.sideStreams, payload: Wire.encode(side)) }
+                    self.sideRequestSent = self.sideRequest.map(self.takesSideRequest) ?? false
                     #if DEBUG
                     #if canImport(UIKit)   // the iOS app's harness (ContentView)
                     InputScript.sessionListed(self)   // -SillInputScript: its clock starts here
@@ -4309,10 +4314,17 @@ extension StreamClient {
         let request = SideStreamRequest(windows: windows, fps: fps, wholeApp: wholeApp,
                                         screen: screen.map { [Double($0.width), Double($0.height)] }, audio: audio,
                                         audioCodec: audio == true ? audioCodec : nil)
-        guard request != sideRequest else { return }
+        guard request != sideRequest || !sideRequestSent else { return }
         sideRequest = request
-        guard hostSideStreams > 0 else { return }
+        sideRequestSent = takesSideRequest(request)
+        guard sideRequestSent else { return }
         send(.sideStreams, payload: Wire.encode(request))
+    }
+
+    /// Whether this session's host takes `request` (kind 29): one that streams side windows, or one
+    /// that streams none but sends sound, for a request that asks for it (or stops it) (Sill for Linux).
+    func takesSideRequest(_ request: SideStreamRequest) -> Bool {
+        hostSideStreams > 0 || hostAudio
     }
 
     /// This device's clipboard to the Mac (kind 32); an empty one asks for the Mac's from now on.

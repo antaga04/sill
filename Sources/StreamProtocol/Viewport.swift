@@ -20,9 +20,25 @@ public struct Viewport: Codable, Hashable {
     /// The host runs the stream at the highest rate among its connected clients and restarts the
     /// pipeline when that changes.
     public var fps: Int?
+    /// The video this device decodes: `Viewport.h264` for a device without HEVC in hardware (an
+    /// A7 iPad on iOS 12, the ipad-client app). nil (every device before 2026-10-19) or "hevc" is
+    /// HEVC. The host encodes H.264 while any connected device asks for it, and restarts the
+    /// pipeline when that changes; the parameter sets then carry SPS and PPS (two sets) instead of
+    /// VPS, SPS and PPS. Only for a device on its own: an HEVC-only device beside it would be sent
+    /// H.264 it cannot show.
+    public var codec: String?
+    /// The largest frame this device decodes, in pixels (width × height): its decoder's limit
+    /// (1920 × 1088 for the A7's H.264 decoder). The host scales the stream down to the smallest
+    /// limit among its connected devices, keeping the source's shape. nil: no limit.
+    public var maxPixels: Int?
 
-    public init(width: Double, height: Double, scale: Double?, localCursor: Bool? = nil, fps: Int? = nil) {
+    /// `codec`'s value for H.264.
+    public static let h264 = "h264"
+
+    public init(width: Double, height: Double, scale: Double?, localCursor: Bool? = nil, fps: Int? = nil,
+                codec: String? = nil, maxPixels: Int? = nil) {
         self.width = width; self.height = height; self.scale = scale; self.localCursor = localCursor; self.fps = fps
+        self.codec = codec; self.maxPixels = maxPixels
     }
 }
 

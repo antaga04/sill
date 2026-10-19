@@ -5,7 +5,8 @@ import Foundation
 public enum StreamMessageKind: UInt8 {
     // Host → client: video
     case parameterSets = 0   // payload: ParameterSets.encoded()
-    case frame = 1           // payload: one HEVC access unit, length-prefixed NALs (hvcC style)
+    case frame = 1           // payload: one HEVC access unit, length-prefixed NALs (hvcC style); H.264 (avcC style)
+                             // while a device's viewport asks for it (Viewport.codec)
     // Host → client: window switcher catalog (see Switcher.swift)
     case windowList = 2      // JSON WindowList; sent on connect and whenever windows or the active source change
     case thumbnail = 3       // ImageBlob: windowID(4) + JPEG, refreshed every second or two per window
@@ -135,6 +136,7 @@ public struct StreamMessage {
 }
 
 /// HEVC VPS/SPS/PPS as delivered by VideoToolbox, plus the NAL length-prefix size (normally 4).
+/// An H.264 stream (Viewport.codec) carries its SPS and PPS here instead: two sets, not three.
 public struct ParameterSets {
     public var nalUnitHeaderLength: Int
     public var sets: [Data]

@@ -28,6 +28,21 @@ package final class StreamCoordinator {
     /// from either is then a no-op instead of a restart. Cleared when the client leaves.
     private var clientFPS: [ObjectIdentifier: Int] = [:]
     private var wantedFPS: Int { min(maxFPS, max(24, clientFPS.values.max() ?? 60)) }
+    /// Each connected client's codec and largest frame (Viewport.codec, Viewport.maxPixels): the
+    /// stream is H.264 while any device asks for it, and no larger than the smallest limit, so an A7
+    /// iPad on iOS 12 (ipad-client) can decode it. Cleared when the client leaves; a change restarts
+    /// the pipeline, as a rate change does.
+    private var clientCodec: [ObjectIdentifier: VideoCodec] = [:]
+    private var clientMaxPixels: [ObjectIdentifier: Int] = [:]
+    private var wantedCodec: VideoCodec { clientCodec.values.contains(.h264) ? .h264 : .hevc }
+    private var wantedMaxPixels: Int? { clientMaxPixels.values.min() }
+    /// The largest frame the running pipeline was started with (`startPipeline`).
+    private var pipelineMaxPixels: Int?
+    /// The devices now want another codec or frame limit than the running pipeline has.
+    private var videoChanged: Bool {
+        guard let encoder else { return false }
+        return wantedCodec != encoder.codec || wantedMaxPixels != pipelineMaxPixels
+    }
     /// What the next pipeline will run at: the software encoder is not asked for more than 60.
     private var effectiveFPS: Int { useSoftwareEncoder ? min(wantedFPS, 60) : wantedFPS }
     /// The bitrate knob is per 60 fps; a faster stream gets proportionally more so each frame
@@ -389,6 +404,8 @@ package final class StreamCoordinator {
             Task { @MainActor in
                 guard let self else { return }
                 self.clientFPS[ObjectIdentifier(connection)] = nil
+                self.clientCodec[ObjectIdentifier(connection)] = nil
+                self.clientMaxPixels[ObjectIdentifier(connection)] = nil
                 self.settingsArrivals[ObjectIdentifier(connection)] = nil
                 self.settingsIgnoredLineAt[ObjectIdentifier(connection)] = nil
                 let id = ObjectIdentifier(connection)
@@ -406,8 +423,9 @@ package final class StreamCoordinator {
                 // The last device at home left devices away behind: the away quality, at once.
                 let flipped = self.routesChanged(joined: nil, endpoint: nil)
                 // A 120 Hz device left a 60 Hz one behind: come down to its rate. The restart takes
-                // the flip too (select's commit), so a device that leaves costs one.
-                if self.active != .none, self.catalog.clientCount > 1, self.effectiveFPS != self.fps {
+                // the flip too (select's commit), so a device that leaves costs one. The same when
+                // the device that asked for H.264 or a smaller frame leaves.
+                if self.active != .none, self.catalog.clientCount > 1, self.effectiveFPS != self.fps || self.videoChanged {
                     await self.select(self.active)
                 } else if flipped {
                     await self.applyPending()
@@ -420,7 +438,7 @@ package final class StreamCoordinator {
                 let wasEmpty = self.catalog.clientCount == 0
                 self.catalog.clientCount = count          // the catalog idles itself at 0
                 // Nobody is watching: stop capturing and encoding. The next client picks afresh.
-                if count == 0 { self.viewport = nil; self.clientFPS = [:] }   // the next device starts from scratch
+                if count == 0 { self.viewport = nil; self.clientFPS = [:]; self.clientCodec = [:]; self.clientMaxPixels = [:] }   // the next device starts from scratch
                 if count == 0 { self.gestureChords.forget() }                 // and did not open a view it could close
                 // On the software encoder, the hardware is checked only while someone watches.
                 if count == 0 { self.stopRecheck() } else { self.devicesPresent(firstArrived: wasEmpty) }
@@ -952,6 +970,8 @@ package final class StreamCoordinator {
             viewport = v
             let id = ObjectIdentifier(connection)
             clientFPS[id] = v.fps ?? 60
+            clientCodec[id] = VideoCodec(viewport: v.codec)
+            clientMaxPixels[id] = v.maxPixels.flatMap { $0 > 0 ? $0 : nil }
             // The flip its connection made waited for this, its rate (`flipAwaits`): the restart the
             // rate needs takes the flip too, and the flip alone restarts once when the rate needs none.
             let flipWaited = flipWait == id
@@ -1135,8 +1155,9 @@ package final class StreamCoordinator {
     /// The desktop and nothing-streaming ignore viewports.
     private func applyViewportToActiveWindow() async {
         // A different rate (a ProMotion device joined, Low Power Mode toggled) needs a new capture
-        // interval and encoder session: one restart, whatever the source.
-        if active != .none, effectiveFPS != fps { await select(active); return }
+        // interval and encoder session: one restart, whatever the source. So does another codec or
+        // frame limit (a device that decodes only H.264, or only up to 1080p).
+        if active != .none, effectiveFPS != fps || videoChanged { await select(active); return }
         if virtualDisplay, stage.isStaged, case .window(let id) = active {
             // One restart: prepare re-places the window on the same display (the display is only
             // recreated if the envelope grew). The client's identical re-send after a switch is a
@@ -1451,10 +1472,19 @@ package final class StreamCoordinator {
     /// Encoder, then capture (ScreenCaptureKit for a filter, the test pattern without one), then
     /// `active`. Throws with `active` untouched if either refuses; the caller decides what to do.
     /// `title` and `kind` describe the stream in the app's menu.
-    private func startPipeline(source: StreamSource, filter: SCContentFilter?, sourceRect: CGRect?, width: Int, height: Int, describe: String,
+    private func startPipeline(source: StreamSource, filter: SCContentFilter?, sourceRect: CGRect?, width sourceWidth: Int,
+                               height sourceHeight: Int, describe: String,
                                title: String, kind: HostStatusSnapshot.Stream.Kind) async throws {
+        // The devices' decoders: H.264 for one that asks, and the smallest frame limit, the capture
+        // scaling the source down to it.
+        let codec = wantedCodec
+        let maxPixels = wantedMaxPixels
+        let (width, height) = Self.fitted(width: sourceWidth, height: sourceHeight, maxPixels: maxPixels)
+        // H.264 stays on the hardware encoder through a fallback (HEVCEncoder: the software one holds
+        // frames back), but for a test host that must never touch it (SILL_TEST_SOFTWARE_ENCODER).
+        let software = useSoftwareEncoder && (codec == .hevc || softwareOnly)
         let enc = try HEVCEncoder(width: width, height: height, fps: fps, bitrate: streamBitrate, prioritizeSpeed: prioritizeSpeed,
-                                  software: useSoftwareEncoder)
+                                  software: software, codec: codec)
         enc.onHung = { [weak self, weak enc] in
             Task { @MainActor in
                 guard let enc else { return }
@@ -1477,8 +1507,11 @@ package final class StreamCoordinator {
             syntheticCapture.start(width: width, height: height, fps: fps)
         }
         encoder = enc
+        pipelineMaxPixels = maxPixels
         active = source
-        print("Streaming \(describe) at \(width)×\(height), \(fps) fps, \(streamBitrate / 1_000_000) Mbps")
+        let video = codec == .h264 ? ", H.264" : ""
+        let scaled = (width, height) != (sourceWidth, sourceHeight) ? " (scaled from \(sourceWidth)×\(sourceHeight) for the device's decoder)" : ""
+        print("Streaming \(describe) at \(width)×\(height)\(scaled), \(fps) fps, \(streamBitrate / 1_000_000) Mbps\(video)")
         status.update {
             $0.stream = HostStatusSnapshot.Stream(kind: kind, title: title, width: width, height: height, fps: fps,
                                                   mbps: streamBitrate / 1_000_000, onVirtualDisplay: sourceRect != nil,
@@ -1951,13 +1984,15 @@ package final class StreamCoordinator {
             await encoderHung(enc, attempt: attempt + 1)
             return
         }
-        if enc.software {
+        // H.264 has no software encoder to fall back to (startPipeline), so its hangs count as the
+        // software encoder's do.
+        if enc.software || enc.codec == .h264 {
             let now = CFAbsoluteTimeGetCurrent()
             if now - lastSoftwareHangAt > 60 { softwareRestarts = 0 }   // three hangs within a minute stop the stream
             lastSoftwareHangAt = now
             softwareRestarts += 1
             guard softwareRestarts <= 3 else {
-                print("Software encoder hung too; stopping the stream.")
+                print(enc.software ? "Software encoder hung too; stopping the stream." : "Hardware H.264 encoder keeps hanging; stopping the stream.")
                 await select(.none)
                 return
             }
@@ -2220,13 +2255,22 @@ package final class StreamCoordinator {
             }
             // The encoder is fixed to one size, so a resized window means a fresh pipeline.
             if let scw = catalog.window(id: id),
-               evenPixels(scw.frame.width * captureScale) != encoderWidth || evenPixels(scw.frame.height * captureScale) != encoderHeight {
+               Self.fitted(width: evenPixels(scw.frame.width * captureScale), height: evenPixels(scw.frame.height * captureScale),
+                           maxPixels: pipelineMaxPixels) != (encoderWidth, encoderHeight) {
                 _ = w
                 await select(active)
                 return
             }
         }
         broadcastList()
+    }
+
+    /// A frame of at most `maxPixels` (a device's decoder limit) at the source's shape, in even
+    /// pixels: the source's own size when it fits or there is no limit.
+    static func fitted(width: Int, height: Int, maxPixels: Int?) -> (width: Int, height: Int) {
+        guard let maxPixels, width * height > maxPixels else { return (width, height) }
+        let f = (Double(maxPixels) / Double(width * height)).squareRoot()
+        return (max(2, Int(Double(width) * f) & ~1), max(2, Int(Double(height) * f) & ~1))
     }
 
     private var encoderWidth: Int { encoder?.width ?? 0 }

@@ -7,11 +7,10 @@ import StreamProtocol
 /// a code, or a pasted sill://pair link). All of it is the shared StreamClient's; this is its look.
 struct ConnectView: View {
     @ObservedObject var client: StreamClient
-    @State private var adding = false
-    @State private var address = ""
-    @State private var code = ""
-    @State private var homeCode = ""
-    @State private var link = ""
+    /// The fields' state. An ObservableObject rather than `@State`: `@State` is a macro in the
+    /// macOS 27 SDK, whose plugin only Xcode carries, so this target builds with the Command Line
+    /// Tools alone.
+    @StateObject private var draft = ConnectDraft()
 
     private var homeShown: HomeAsk? { client.homeAsk.flatMap { $0.phase == .shown ? $0 : nil } }
 
@@ -28,7 +27,7 @@ struct ConnectView: View {
                 linkConfirmation(pending)
             } else if let ask = homeShown {
                 homeCard(ask)
-            } else if adding {
+            } else if draft.adding {
                 addCard
             } else {
                 rows
@@ -41,7 +40,7 @@ struct ConnectView: View {
     }
 
     private var title: String {
-        if client.pendingLink != nil || adding { return "Add a Mac" }
+        if client.pendingLink != nil || draft.adding { return "Add a Mac" }
         if let ask = homeShown { return DiscoveryPolicy.HomeCopy.cardTitle(mac: ask.name) }
         return "Connect to a Mac"
     }
@@ -79,7 +78,7 @@ struct ConnectView: View {
             Button("Add a Mac…") {
                 client.cancelHomeAsk()
                 client.pairing = .idle
-                adding = true
+                draft.adding = true
             }
             if client.showsNearbyHint {
                 if client.searchingNearby {
@@ -110,19 +109,19 @@ struct ConnectView: View {
     private func homeCard(_ ask: HomeAsk) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Enter the 12-digit code \(ask.name) shows.").fixedSize(horizontal: false, vertical: true)
-            TextField("Code", text: $homeCode)
+            TextField("Code", text: $draft.homeCode)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.title3, design: .monospaced))
-                .onSubmit { client.pairHome(code: homeCode) }
+                .onSubmit { client.pairHome(code: draft.homeCode) }
             HStack {
-                Button("Cancel") { client.cancelHomeAsk(); homeCode = "" }
+                Button("Cancel") { client.cancelHomeAsk(); draft.homeCode = "" }
                 Spacer()
-                Button("Pair") { client.pairHome(code: homeCode) }
+                Button("Pair") { client.pairHome(code: draft.homeCode) }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(homeCode.filter(\.isNumber).count < 12)
+                    .disabled(draft.homeCode.filter(\.isNumber).count < 12)
             }
         }
-        .onDisappear { homeCode = "" }
+        .onDisappear { draft.homeCode = "" }
     }
 
     /// Add a Mac: the address the other Mac's pairing window gives and its code, or the whole link
@@ -130,18 +129,18 @@ struct ConnectView: View {
     private var addCard: some View {
         Form {
             Section("With the address and code") {
-                TextField("Address", text: $address, prompt: Text("name.tailnet.ts.net or 100.101.102.103"))
-                TextField("Code", text: $code, prompt: Text("12 digits"))
+                TextField("Address", text: $draft.address, prompt: Text("name.tailnet.ts.net or 100.101.102.103"))
+                TextField("Code", text: $draft.code, prompt: Text("12 digits"))
                     .font(.system(.body, design: .monospaced))
-                Button("Pair") { client.pairTyped(code: code, address: address, overlay: false) }
+                Button("Pair") { client.pairTyped(code: draft.code, address: draft.address, overlay: false) }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(address.isEmpty || code.filter(\.isNumber).count < 12)
+                    .disabled(draft.address.isEmpty || draft.code.filter(\.isNumber).count < 12)
             }
             Section("Or with a pairing link") {
-                TextField("Link", text: $link, prompt: Text("sill://pair?…"))
+                TextField("Link", text: $draft.link, prompt: Text("sill://pair?…"))
                 HStack {
-                    Button("Paste") { link = NSPasteboard.general.string(forType: .string) ?? link }
-                    Button("Pair with Link") { pairLink() }.disabled(link.isEmpty)
+                    Button("Paste") { draft.link = NSPasteboard.general.string(forType: .string) ?? draft.link }
+                    Button("Pair with Link") { pairLink() }.disabled(draft.link.isEmpty)
                 }
             }
             HStack {
@@ -149,16 +148,16 @@ struct ConnectView: View {
                 Button("Done") {
                     if case .working = client.pairing { client.cancelPairing() }
                     client.pairing = .idle
-                    adding = false
+                    draft.adding = false
                 }
             }
         }
         .formStyle(.grouped)
-        .onChange(of: client.connected) { _, connected in if connected { adding = false } }
+        .onChange(of: client.connected) { _, connected in if connected { draft.adding = false } }
     }
 
     private func pairLink() {
-        switch PairLink.parse(link.trimmingCharacters(in: .whitespacesAndNewlines)) {
+        switch PairLink.parse(draft.link.trimmingCharacters(in: .whitespacesAndNewlines)) {
         case .success(let parsed): client.scanned(parsed, tapped: true, overlay: false)
         case .failure: client.pairing = .failed(.notALink)
         }
@@ -170,8 +169,16 @@ struct ConnectView: View {
             HStack {
                 Button("Cancel") { client.cancelPendingLink() }
                 Spacer()
-                Button("Pair") { adding = true; client.confirmPendingLink() }.keyboardShortcut(.defaultAction)
+                Button("Pair") { draft.adding = true; client.confirmPendingLink() }.keyboardShortcut(.defaultAction)
             }
         }
     }
+}
+
+final class ConnectDraft: ObservableObject {
+    @Published var adding = false
+    @Published var address = ""
+    @Published var code = ""
+    @Published var homeCode = ""
+    @Published var link = ""
 }

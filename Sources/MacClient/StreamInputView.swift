@@ -54,6 +54,8 @@ final class StreamInputView: NSView {
     /// The Aa scale for the Mac window (Viewport.scale): nil leaves the Mac window's size alone. Set
     /// by the window manager (StreamWindows), which sends the viewport itself.
     var textScale: Double?
+    /// ⌃⌥⌘← and ⌃⌥⌘→ (MonitorKeys): the other computer's previous or next monitor, never sent.
+    var onMonitorKey: ((Int) -> Void)?
     /// Whether a viewport may go now: only from the window the host streams (StreamWindows), since
     /// the host fits the window it streams to the last viewport it was sent.
     var viewportAllowed: () -> Bool = { true }
@@ -411,6 +413,10 @@ final class StreamInputView: NSView {
                 self.window?.makeFirstResponder(nil)
                 return nil
             }
+            if let step = MonitorKeys.step(event.keyCode, event.modifierFlags) {
+                if event.type == .keyDown, !event.isARepeat { self.onMonitorKey?(step) }
+                if event.type != .flagsChanged { return nil }
+            }
             self.forward(event.type, keyCode: event.keyCode, flags: event.modifierFlags, isRepeat: event.type == .keyDown && event.isARepeat)
             return nil
         }
@@ -746,5 +752,19 @@ struct ScrollState {
             coasting = false
         }
         return out
+    }
+}
+
+/// The viewer's own keys for the other computer's monitors: ⌃⌥⌘← the previous, ⌃⌥⌘→ the next.
+/// Handled here, never sent, as ⌃⌥⌘⎋ is.
+enum MonitorKeys {
+    static let left: UInt16 = 123, right: UInt16 = 124
+    static let modifiers: NSEvent.ModifierFlags = [.control, .option, .command]
+
+    /// -1 or 1 for one of the two keys with exactly ⌃⌥⌘ (shift aside); nil for anything else.
+    static func step(_ keyCode: UInt16, _ flags: NSEvent.ModifierFlags) -> Int? {
+        guard keyCode == left || keyCode == right,
+              flags.intersection([.control, .option, .command, .shift]) == modifiers else { return nil }
+        return keyCode == left ? -1 : 1
     }
 }

@@ -103,6 +103,10 @@ final class SystemKeyTap {
            flags.intersection([.control, .option, .command]) == [.control, .option, .command] {
             return Unmanaged.passUnretained(event)
         }
+        // ⌃⌥⌘← and ⌃⌥⌘→ are this app's too (the other computer's monitors).
+        if ns.type != .flagsChanged, MonitorKeys.step(ns.keyCode, flags) != nil {
+            return Unmanaged.passUnretained(event)
+        }
         view.forward(ns.type, keyCode: ns.keyCode, flags: flags, isRepeat: ns.type == .keyDown && ns.isARepeat, via: "tap")
         return nil
     }

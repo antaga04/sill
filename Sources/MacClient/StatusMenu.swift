@@ -78,11 +78,22 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private func windowItems(into menu: NSMenu) {
         let open = app.windows.openSources
         menu.addItem(.separator())
-        if client.hostDisplays.isEmpty {
+        if client.hostDisplays.isEmpty || app.windows.singleDesktop {
             let desktop = action("Desktop") { [weak self] in self?.app.windows.open(.desktop) }
             desktop.image = NSImage(systemSymbolName: "menubar.dock.rectangle", accessibilityDescription: nil)
             mark(desktop, source: .desktop, open: open)
             menu.addItem(desktop)
+            // The other computer's monitors, shown in that one window.
+            if client.hostDisplays.count > 1 {
+                let items = client.hostDisplays.map { d -> NSMenuItem in
+                    let item = toggle("\(d.name)  (\(Int(d.width))×\(Int(d.height)))", d.id == client.desktopDisplay) { [weak self] in
+                        self?.app.windows.showMonitor(d.id)
+                    }
+                    return item
+                }
+                let hint = header("⌃⌥⌘← ⌃⌥⌘→ switch from the window")
+                menu.addItem(submenu("Monitor", items + [.separator(), hint], subtitle: app.windows.currentMonitor?.name))
+            }
         } else {
             // Each of the other Mac's displays, a Desktop window of its own.
             for d in client.hostDisplays {

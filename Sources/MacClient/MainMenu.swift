@@ -8,9 +8,12 @@ import StreamProtocol
 /// (MacMenuHub). Main thread.
 final class MainMenu: NSObject {
     private let client: StreamClient
+    /// The previous (-1) or next (1) of the other computer's monitors (StreamWindows.cycleMonitor).
+    var onCycleMonitor: ((Int) -> Void)?
     /// The top level the bar was last built from, so an unchanged one is not rebuilt (a rebuild
     /// closes an open menu).
     private var built: (version: Int?, titles: [String], remote: Bool)?
+    private var builtMonitors = 0
 
     init(client: StreamClient) {
         self.client = client
@@ -31,8 +34,10 @@ final class MainMenu: NSObject {
         let remote = remoteKey
         let state = client.menus
         let shape = (version: state.version, titles: state.menus.map(\.title), remote: remote)
+        let monitors = client.connected ? client.hostDisplays.count : 0
         if let built, built.version == shape.version, built.titles == shape.titles, built.remote == shape.remote,
-           NSApp.mainMenu != nil { return }
+           builtMonitors == monitors, NSApp.mainMenu != nil { return }
+        builtMonitors = monitors
         built = shape
         let bar = NSMenu(title: "Main Menu")
         bar.addItem(appMenu())
@@ -58,6 +63,16 @@ final class MainMenu: NSObject {
         // once ⌃⌥⌘⎋ has given the keyboard back to this Mac.
         let full = menu.addItem(withTitle: "Enter/Exit Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         full.keyEquivalentModifierMask = [.control, .command]
+        // The other computer's monitors; the same keys work while the stream has the keyboard
+        // (StreamInputView's MonitorKeys), where these key equivalents never get them.
+        if client.connected, client.hostDisplays.count > 1 {
+            for (title, step, key) in [("Previous Monitor", -1, NSLeftArrowFunctionKey), ("Next Monitor", 1, NSRightArrowFunctionKey)] {
+                let item = ClosureItem(title: title) { [weak self] in self?.onCycleMonitor?(step) }
+                item.keyEquivalent = String(Character(UnicodeScalar(key)!))
+                item.keyEquivalentModifierMask = [.control, .option, .command]
+                menu.addItem(item)
+            }
+        }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit \(name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")

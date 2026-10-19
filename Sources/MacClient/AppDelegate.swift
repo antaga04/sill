@@ -23,7 +23,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         client.picksDesktopItself = false   // the user's windows to open; the Desktop once, on connecting
         reporter.attach(to: client)
         _ = microphone   // follows the session and the host from now on
+        mainMenu.onCycleMonitor = { [weak self] step in self?.windows.cycleMonitor(by: step) }
         mainMenu.install()
+        // Previous and Next Monitor come and go with the other computer's monitors.
+        client.$hostDisplays.removeDuplicates().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.mainMenu.rebuild() }
+        }.store(in: &subscriptions)
         status = StatusMenu(app: self)
         clipboardSync = ClipboardSync(client: client)
         let audio = self.audio
@@ -109,6 +114,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                     self?.windows.open(.desktop)
                     MacResizeTest.run()
+                }
+            }
+            if UserDefaults.standard.bool(forKey: "SillOpenDesktop") {
+                // -SillOpenDesktop 1: the Desktop's window opens and is picked once the host's list has
+                // come, as when it becomes key (also when the app is not in front: a test from a shell).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    self?.windows.open(.desktop)
+                    self?.windows.flipTest(to: .desktop)
                 }
             }
             if n > 0 {

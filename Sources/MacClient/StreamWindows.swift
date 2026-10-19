@@ -26,6 +26,7 @@ final class StreamWindows: NSObject, NSWindowDelegate {
     private(set) lazy var input: StreamInputView = {
         let view = StreamInputView(client: client)
         view.live = live
+        view.onMonitorKey = { [weak self] step in self?.cycleMonitor(by: step) }
         return view
     }()
     /// A drag of files followed live on the other Mac (kind 38).
@@ -59,7 +60,9 @@ final class StreamWindows: NSObject, NSWindowDelegate {
         // Another display picked while the Desktop streams: the stream goes to that display's window.
         client.$desktopDisplay.removeDuplicates().sink { [weak self] _ in
             DispatchQueue.main.async {
-                guard let self, self.client.active == .desktop else { return }
+                guard let self else { return }
+                if self.singleDesktop { self.monitorChanged() }
+                guard self.client.active == .desktop else { return }
                 self.activeChanged(self.local(.desktop))
             }
         }.store(in: &subscriptions)
@@ -418,8 +421,50 @@ final class StreamWindows: NSObject, NSWindowDelegate {
     /// The host's source as this Mac's windows know it: on a host that lists its displays, the Desktop is
     /// the Desktop window of the display it shows (DesktopWindow), one window per display.
     func local(_ source: StreamSource) -> StreamSource {
-        guard source == .desktop, !client.hostDisplays.isEmpty, let d = client.desktopDisplay else { return source }
+        guard source == .desktop, !singleDesktop, !client.hostDisplays.isEmpty, let d = client.desktopDisplay else { return source }
         return .window(DesktopWindow.id(display: d))
+    }
+
+    /// One Desktop window whatever monitor it shows, switched in place: on a host that streams no
+    /// windows besides the picked one (Sill for Linux), a window per monitor would show a still
+    /// picture in all but one.
+    var singleDesktop: Bool { client.hostSideStreams == 0 }
+
+    /// The monitor the Desktop window shows, from the host's list.
+    var currentMonitor: DisplayInfo? { client.hostDisplays.first { $0.id == client.desktopDisplay } }
+
+    /// Shows the other computer's monitor `id` in the Desktop window, opening it if need be.
+    func showMonitor(_ id: UInt32) {
+        guard client.connected, client.hostDisplays.contains(where: { $0.id == id }) else { return }
+        windowLog("monitor: \(id) (showing \(String(describing: client.desktopDisplay)))")
+        if client.desktopDisplay != id { client.pickDisplay(id) }
+        if open[.desktop] == nil || client.active != .desktop || NSApp.keyWindow !== open[.desktop] { open(.desktop) }
+    }
+
+    /// The previous (-1) or next (1) of the other computer's monitors.
+    func cycleMonitor(by step: Int) {
+        let monitors = client.hostDisplays
+        guard monitors.count > 1 else { return }
+        let i = monitors.firstIndex { $0.id == client.desktopDisplay } ?? 0
+        showMonitor(monitors[(i + step % monitors.count + monitors.count) % monitors.count].id)
+    }
+
+    /// Another monitor shows: the Desktop window takes its name and its shape (its width kept; never
+    /// in full screen, which fits the picture as it is).
+    private func monitorChanged() {
+        guard let window = open[.desktop] else { return }
+        window.title = title(.desktop)
+        guard let d = currentMonitor, d.width > 0, d.height > 0, !window.styleMask.contains(.fullScreen) else { return }
+        let width = window.contentLayoutRect.width
+        var height = (width * CGFloat(d.height / d.width)).rounded()
+        var size = NSSize(width: width, height: height)
+        if let room = window.screen?.visibleFrame.size, height > room.height - 40 {
+            height = room.height - 40
+            size = NSSize(width: (height * CGFloat(d.width / d.height)).rounded(), height: height)
+        }
+        let top = window.frame.maxY
+        window.setContentSize(size)
+        window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: top))
     }
 
     /// The display a Desktop window shows; nil for the other Mac's windows.
@@ -652,9 +697,11 @@ final class StreamWindows: NSObject, NSWindowDelegate {
             let w = client.windows.first { $0.id == id }
             size = NSSize(width: CGFloat(w?.width ?? 1000), height: CGFloat(w?.height ?? 700))
         default:
-            // The Desktop: the frame's shape when known, else 16:10.
+            // The Desktop: its monitor's shape, else the frame's when known, else 16:10.
             let video = client.videoSize
-            size = video.width > 0 && client.active == .desktop
+            size = singleDesktop && source == .desktop && currentMonitor != nil
+                ? NSSize(width: CGFloat(currentMonitor!.width), height: CGFloat(currentMonitor!.height))
+                : video.width > 0 && client.active == .desktop
                 ? NSSize(width: 1280, height: 1280 * video.height / video.width)
                 : NSSize(width: 1280, height: 800)
         }
@@ -668,7 +715,9 @@ final class StreamWindows: NSObject, NSWindowDelegate {
         case .window(let id):
             guard let w = client.windows.first(where: { $0.id == id }) else { return client.macName }
             return w.title.isEmpty ? w.appName : "\(w.appName) — \(w.title)"
-        case .desktop: return "\(client.macName) — Desktop"
+        case .desktop:
+            if client.hostDisplays.count > 1, let d = currentMonitor { return "\(client.macName) — \(d.name)" }
+            return "\(client.macName) — Desktop"
         case .none: return client.macName
         }
     }

@@ -100,6 +100,9 @@ public enum StreamMessageKind: UInt8 {
                              // window's picture came out wrong; hosts before 2026-10-15 made every display
                              // again); only to a host whose list
                              // says `rebuildDesk`
+    case microphone = 43     // device → host: an AudioPacket (plain PCM, about 10 ms) of the device's microphone,
+                             // which the host plays as a microphone of its own; only to a host whose list says
+                             // `microphone`
     case unknown = 255       // never sent: what parseHeader yields for a kind this build does not know
 }
 

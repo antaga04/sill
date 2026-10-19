@@ -50,6 +50,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
                 menu.addItem(allow)
             }
             menu.addItem(playSoundItem())
+            if client.hostMicrophone { menu.addItem(microphoneItem()) }
             if let key = NSApp.orderedWindows.first(where: { $0 is StreamWindow && $0.styleMask.contains(.fullScreen) }) {
                 menu.addItem(action("Exit Full Screen") { key.toggleFullScreen(nil) })
             }
@@ -214,6 +215,17 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         item.toolTip = client.hostAudio ? "The sound of the apps open here plays on this Mac and is silenced on \(client.macName)."
                                         : "\(client.macName)’s Sill does not send sound yet."
         item.isEnabled = client.hostAudio
+        return item
+    }
+
+    private func microphoneItem() -> NSMenuItem {
+        let item = toggle("Send Microphone", MicrophoneSender.enabled) { [app] in
+            MicrophoneSender.enabled.toggle()
+            app.microphone.update()
+        }
+        item.toolTip = app.microphone.denied
+            ? "Allow Sill Viewer in System Settings › Privacy & Security › Microphone."
+            : "This Mac's microphone becomes “Sill Microphone” on \(client.macName): pick it as an app's input there."
         return item
     }
 

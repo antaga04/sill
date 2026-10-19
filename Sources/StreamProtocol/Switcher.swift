@@ -87,12 +87,16 @@ public struct WindowList: Codable {
     /// True: this host makes its hidden displays again on a device's word (kind 42). Nil before
     /// 2026-10-14, to which a device sends none.
     public var rebuildDesk: Bool?
+    /// True: this host takes the device's microphone (kind 43) and offers it to its apps as a
+    /// microphone. Nil from every host before it (Sill for Linux takes it), to which a device sends none.
+    public var microphone: Bool?
 
     public init(macName: String, windows: [WindowInfo], active: StreamSource, launchID: String? = nil,
                 hostVersion: String? = nil, protocol: Int? = nil, gestures: Int? = nil, middleButton: Bool? = nil,
                 sideStreams: Int? = nil, clipboard: Int? = nil, audio: Bool? = nil, fileDrop: Bool? = nil,
                 liveDrag: Bool? = nil, dockMenu: Bool? = nil, displays: [DisplayInfo]? = nil, desktopDisplay: UInt32? = nil,
-                windowInput: Bool? = nil, badges: [String: String]? = nil, rebuildDesk: Bool? = nil) {
+                windowInput: Bool? = nil, badges: [String: String]? = nil, rebuildDesk: Bool? = nil,
+                microphone: Bool? = nil) {
         self.macName = macName; self.windows = windows; self.active = active; self.launchID = launchID
         self.hostVersion = hostVersion; self.protocol = `protocol`; self.gestures = gestures
         self.middleButton = middleButton; self.sideStreams = sideStreams
@@ -100,6 +104,7 @@ public struct WindowList: Codable {
         self.audio = audio; self.fileDrop = fileDrop; self.liveDrag = liveDrag
         self.dockMenu = dockMenu; self.windowInput = windowInput; self.badges = badges
         self.displays = displays; self.desktopDisplay = desktopDisplay; self.rebuildDesk = rebuildDesk
+        self.microphone = microphone
     }
 }
 

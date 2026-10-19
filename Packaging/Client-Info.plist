@@ -45,6 +45,8 @@
 	</array>
 	<key>NSHumanReadableCopyright</key>
 	<string>Sill is free and open source.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Send Microphone lets apps on the computer you control hear this Mac's microphone.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sill finds your other Macs running Sill on the same network so this Mac can show and control their windows.</string>
 	<key>NSPrincipalClass</key>

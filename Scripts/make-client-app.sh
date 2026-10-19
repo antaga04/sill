@@ -62,10 +62,10 @@ identity="${SILL_SIGN_IDENTITY:-$(echo "$ids" | awk '/"Developer ID Application:
 # The helper first (a nested bundle is sealed into its parent's signature), then the app.
 if [ "$identity" = "-" ]; then
     codesign --force --options runtime --timestamp=none --sign - "$helper"
-    codesign --force --options runtime --timestamp=none --sign - "$app"
+    codesign --force --options runtime --timestamp=none --entitlements Packaging/Client.entitlements --sign - "$app"
 else
     codesign --force --options runtime --timestamp --sign "$identity" "$helper"
-    codesign --force --options runtime --timestamp --sign "$identity" "$app"
+    codesign --force --options runtime --timestamp --entitlements Packaging/Client.entitlements --sign "$identity" "$app"
 fi
 codesign --verify --strict "$app"
 echo "Signed by: $(codesign -dv --verbose=2 "$app" 2>&1 | sed -n 's/^Authority=//p' | head -1)"

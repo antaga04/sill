@@ -15,12 +15,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var status: StatusMenu?
     private var clipboardSync: ClipboardSync?
     let audio = AudioPlayer()
+    private(set) lazy var microphone = MicrophoneSender(client: client)
     private var connectWindow: NSWindow?
     private var subscriptions = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         client.picksDesktopItself = false   // the user's windows to open; the Desktop once, on connecting
         reporter.attach(to: client)
+        _ = microphone   // follows the session and the host from now on
         mainMenu.install()
         status = StatusMenu(app: self)
         clipboardSync = ClipboardSync(client: client)

@@ -795,6 +795,8 @@ final class StreamClient: ObservableObject {
     @Published var hostSideStreams = 0
     /// Whether this session's Mac sends the sound of the apps shown (kind 33); false before 2026-10-12.
     @Published var hostAudio = false
+    /// Whether this session's host takes this device's microphone (`WindowList.microphone`, kind 43).
+    @Published var hostMicrophone = false
     /// Whether this session's Mac takes files dropped on its windows (kinds 34, 35); false before 2026-10-12.
     @Published var hostFileDrop = false
     /// Whether the Mac follows a drag of files over its windows as it goes (`WindowList.liveDrag`, kind 38).
@@ -3191,6 +3193,7 @@ final class StreamClient: ObservableObject {
         hostSideStreams = 0
         hostClipboard = nil
         hostAudio = false
+        hostMicrophone = false
         hostFileDrop = false
         hostLiveDrag = false
         hostDockMenu = false
@@ -3742,6 +3745,7 @@ final class StreamClient: ObservableObject {
                 self.hostMiddleButton = list.middleButton == true
                 if self.hostSideStreams != (list.sideStreams ?? 0) { self.hostSideStreams = list.sideStreams ?? 0 }
                 if self.hostAudio != (list.audio == true) { self.hostAudio = list.audio == true }
+                if self.hostMicrophone != (list.microphone == true) { self.hostMicrophone = list.microphone == true }
                 if self.hostFileDrop != (list.fileDrop == true) { self.hostFileDrop = list.fileDrop == true }
                 if self.hostLiveDrag != (list.liveDrag == true) { self.hostLiveDrag = list.liveDrag == true }
                 if self.hostDockMenu != (list.dockMenu == true) { self.hostDockMenu = list.dockMenu == true }

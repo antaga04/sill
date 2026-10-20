@@ -20,7 +20,7 @@ public enum AudioPacket {
         let channels = Int(d[d.startIndex + 4])
         guard rate >= 8_000, rate <= 192_000, (1...8).contains(channels), (d.count - 5) % (2 * channels) == 0 else { return nil }
         var samples = [Int16](repeating: 0, count: (d.count - 5) / 2)
-        samples.withUnsafeMutableBytes { dst in
+        _ = samples.withUnsafeMutableBytes { dst in
             d.copyBytes(to: dst, from: (d.startIndex + 5)..<d.endIndex)
         }
         return (Double(rate), channels, samples)

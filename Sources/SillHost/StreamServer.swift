@@ -1356,6 +1356,29 @@ final class StreamServer {
         }
     }
 
+    /// The devices that hear this Mac's sound (kind 33, SystemAudio). Thread-safe.
+    func setAudioListeners(_ listeners: Set<ObjectIdentifier>) {
+        queue.async { [self] in audioListeners = listeners }
+    }
+    private var audioListeners: Set<ObjectIdentifier> = []
+    /// Over this many bytes waiting for a listener's connection, its packet is dropped: a gap of
+    /// 20 ms beats sound that lags further behind the picture.
+    private static let audioBudget = 256 * 1024
+
+    /// About 20 ms of sound to every listener, sent as the tick is: not counted in `inflight`, so
+    /// 50 packets a second never make the frames' rule drop a delta. Any queue.
+    func sendAudio(_ packet: Data) {
+        let data = StreamMessage(kind: .audio, timestamp: Date().timeIntervalSince1970, isKeyframe: false, payload: packet).serialized()
+        queue.async { [self] in
+            for id in audioListeners {
+                guard let client = clients[id], client.connection.state == .ready else { continue }
+                if client.pendingBytes > Self.audioBudget { Stats.shared.bump("audio.dropped"); continue }
+                client.connection.send(content: data, completion: .contentProcessed { _ in })   // not counted as inflight
+                Stats.shared.bump("audio.sent")
+            }
+        }
+    }
+
     /// Client → host messages share the same framing. Small and rare, so read them one at a time.
     private func receiveLoop(_ client: Client) {
         let c = client.connection

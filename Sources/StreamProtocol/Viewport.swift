@@ -31,14 +31,17 @@ public struct Viewport: Codable, Hashable {
     /// (1920 × 1088 for the A7's H.264 decoder). The host scales the stream down to the smallest
     /// limit among its connected devices, keeping the source's shape. nil: no limit.
     public var maxPixels: Int?
+    /// This device plays the Mac's sound (kind 33, AudioPacket): while any connected device asks,
+    /// the host taps everything the Mac plays, mutes it on the Mac and sends it. nil: no sound.
+    public var audio: Bool?
 
     /// `codec`'s value for H.264.
     public static let h264 = "h264"
 
     public init(width: Double, height: Double, scale: Double?, localCursor: Bool? = nil, fps: Int? = nil,
-                codec: String? = nil, maxPixels: Int? = nil) {
+                codec: String? = nil, maxPixels: Int? = nil, audio: Bool? = nil) {
         self.width = width; self.height = height; self.scale = scale; self.localCursor = localCursor; self.fps = fps
-        self.codec = codec; self.maxPixels = maxPixels
+        self.codec = codec; self.maxPixels = maxPixels; self.audio = audio
     }
 }
 

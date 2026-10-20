@@ -76,6 +76,10 @@ public enum StreamMessageKind: UInt8 {
                              // on), its text becomes the Mac's clipboard, and `stop` ends the subscription; only
                              // to a host whose window list says `clipboard` 1 or more. Host → device: text copied
                              // on the Mac (or sent by another device), only to a connection that subscribed
+    // The Mac's sound (Audio.swift): 33, as the Mac client's branch numbers its sound, clear of the audio
+    // plan's 29. Older readers map it to `.unknown` and skip it.
+    case audio = 33          // host → device: AudioPacket, about 20 ms of the Mac's sound, only to a device whose
+                             // viewport asks for it (Viewport.audio); the Mac is muted meanwhile
     case unknown = 255       // never sent: what parseHeader yields for a kind this build does not know
 }
 

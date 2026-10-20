@@ -36,6 +36,12 @@ package final class StreamCoordinator {
     private var clientMaxPixels: [ObjectIdentifier: Int] = [:]
     private var wantedCodec: VideoCodec { clientCodec.values.contains(.h264) ? .h264 : .hevc }
     private var wantedMaxPixels: Int? { clientMaxPixels.values.min() }
+    /// The connected devices whose viewport asks for this Mac's sound (Viewport.audio, kind 33):
+    /// while there is one, everything the Mac plays is tapped, muted here and sent to them
+    /// (SystemAudio). Cleared when the client leaves.
+    private var clientAudio: Set<ObjectIdentifier> = []
+    /// The SystemAudio (macOS 14.2 and later), made when the first device asks.
+    private var systemAudio: AnyObject?
     /// The largest frame the running pipeline was started with (`startPipeline`).
     private var pipelineMaxPixels: Int?
     /// The devices now want another codec or frame limit than the running pipeline has.
@@ -406,6 +412,7 @@ package final class StreamCoordinator {
                 self.clientFPS[ObjectIdentifier(connection)] = nil
                 self.clientCodec[ObjectIdentifier(connection)] = nil
                 self.clientMaxPixels[ObjectIdentifier(connection)] = nil
+                if self.clientAudio.remove(ObjectIdentifier(connection)) != nil { self.audioListenersChanged() }
                 self.settingsArrivals[ObjectIdentifier(connection)] = nil
                 self.settingsIgnoredLineAt[ObjectIdentifier(connection)] = nil
                 let id = ObjectIdentifier(connection)
@@ -972,6 +979,10 @@ package final class StreamCoordinator {
             clientFPS[id] = v.fps ?? 60
             clientCodec[id] = VideoCodec(viewport: v.codec)
             clientMaxPixels[id] = v.maxPixels.flatMap { $0 > 0 ? $0 : nil }
+            if (v.audio == true) != clientAudio.contains(id) {
+                if v.audio == true { clientAudio.insert(id) } else { clientAudio.remove(id) }
+                audioListenersChanged()
+            }
             // The flip its connection made waited for this, its rate (`flipAwaits`): the restart the
             // rate needs takes the flip too, and the flip alone restarts once when the rate needs none.
             let flipWaited = flipWait == id
@@ -1922,11 +1933,26 @@ package final class StreamCoordinator {
     /// window back and dies of the signal with no goodbye (`releaseKeysForExit`): its devices notice
     /// by liveness.
     package func shutdownForExit() {
+        if #available(macOS 14.2, *) { (systemAudio as? SystemAudio)?.stop() }
         injector.releaseAll()
         server.goodbyeAll(Goodbye(reason: Goodbye.quit), within: 0.1)
         shuttingDown = true
         restoreFits(keeping: nil)
         stage.release()
+    }
+
+    /// Who hears this Mac's sound: the server's listeners, and the tap running while there is one.
+    /// A synthetic host never taps (a test must not mute this Mac).
+    private func audioListenersChanged() {
+        server.setAudioListeners(clientAudio)
+        guard !synthetic, #available(macOS 14.2, *) else { return }
+        if systemAudio == nil, !clientAudio.isEmpty {
+            let audio = SystemAudio()
+            let server = self.server
+            audio.onPacket = { server.sendAudio($0) }
+            systemAudio = audio
+        }
+        (systemAudio as? SystemAudio)?.set(running: !clientAudio.isEmpty)
     }
 
     /// The CLI's default path at a signal (HostShutdown.installKeyRelease), just before it dies of it:

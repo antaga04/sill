@@ -42,6 +42,8 @@ package final class StreamCoordinator {
     private var clientAudio: Set<ObjectIdentifier> = []
     /// The SystemAudio (macOS 14.2 and later), made when the first device asks.
     private var systemAudio: AnyObject?
+    /// A device's microphone (kind 43) into the loopback device the Mac's apps take as a microphone.
+    private let microphone = MicrophoneOut()
     /// The largest frame the running pipeline was started with (`startPipeline`).
     private var pipelineMaxPixels: Int?
     /// The devices now want another codec or frame limit than the running pipeline has.
@@ -956,6 +958,9 @@ package final class StreamCoordinator {
             if !synthetic { raiseIfInteracting(event) }
             deliver(event, in: rect, from: device)
             desktopInputMayActivate(event)
+        case .microphone:
+            guard !synthetic, let packet = AudioPacket.unpack(message.payload) else { return }
+            microphone.play(sampleRate: packet.sampleRate, channels: packet.channels, samples: packet.samples)
         case .gesture:
             // A three- or four-finger gesture (docs/trackpad-gestures-plan.md §7.4), which the Mac
             // turns into its own shortcut. At most `gesturesPerSecond` a second per connection: a
@@ -2392,7 +2397,8 @@ package final class StreamCoordinator {
         StreamMessage(kind: .windowList, timestamp: Date().timeIntervalSince1970, isKeyframe: false,
                       payload: Wire.encode(WindowList(macName: macName, windows: catalog.infos, active: active, launchID: launchID,
                                                       hostVersion: hostVersion, protocol: SillProtocol.current,
-                                                      gestures: TrackpadGesture.generation, clipboard: clipboard.advertised)))
+                                                      gestures: TrackpadGesture.generation, clipboard: clipboard.advertised,
+                                                      microphone: microphone.available ? true : nil)))
     }
 
     private func broadcastList() { server.broadcast(listMessage()) }

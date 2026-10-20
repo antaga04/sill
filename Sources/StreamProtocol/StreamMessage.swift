@@ -80,6 +80,8 @@ public enum StreamMessageKind: UInt8 {
     // plan's 29. Older readers map it to `.unknown` and skip it.
     case audio = 33          // host → device: AudioPacket, about 20 ms of the Mac's sound, only to a device whose
                              // viewport asks for it (Viewport.audio); the Mac is muted meanwhile
+    case pickDisplay = 40    // device → host: JSON PickDisplay — which of the host's own displays the Desktop is;
+                             // only to a host whose list names its `displays` (Sill's number and layout)
     case microphone = 43     // device → host: AudioPacket, about 20 ms of the device's microphone, which the host
                              // plays into a loopback device (BlackHole) that the Mac's apps take as a microphone;
                              // only to a host whose list says `microphone` (the Mac client's number and layout)

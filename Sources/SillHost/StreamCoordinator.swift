@@ -361,7 +361,6 @@ package final class StreamCoordinator {
         // The identity's TXT record (its tag, and `p` on a TLS home door) must be in the first
         // registration: set before `server.start()`.
         remote?.attach(server: server, status: status, macName: macName, requirePairing: config.requirePairing)
-        catalog.preferMainDisplay = virtualDisplay   // the Desktop source must never capture the virtual display
         stage.onLost = { [weak self] in Task { @MainActor in await self?.stageLost() } }
         status.update { $0.synthetic = synthetic; $0.virtualDisplayOn = config.virtualDisplay }
         // Every change of the snapshot re-publishes the devices' settings state (deduplicated, so
@@ -371,7 +370,7 @@ package final class StreamCoordinator {
         menus.prepare = { [weak self] in await self?.focusForMenus() ?? true }
         menus.currentTarget = { [weak self] in self?.menuTarget() }
         menus.onSubscribersChanged = { [weak self] any in self?.watchFrontmostApp(any) }
-        catalog.onPolled = { [weak self] in self?.menusPolled() }
+        catalog.onPolled = { [weak self] in self?.menusPolled(); self?.displaysPolled() }
 
         server.onClientConnected = { [weak self] connection, route, link in
             Task { @MainActor in
@@ -788,7 +787,6 @@ package final class StreamCoordinator {
             || old.requirePairing != next.requirePairing {
             remote?.apply(next)
         }
-        catalog.preferMainDisplay = next.virtualDisplay   // the Desktop source must never capture the virtual display
         if old.virtualDisplay && !next.virtualDisplay {
             stage.release()        // idempotent: select has already sent a staged window home
             status.update { $0.lastStageFailure = nil }
@@ -911,6 +909,11 @@ package final class StreamCoordinator {
             // A pick from the device's switcher: the device never selects a window by itself (its
             // automatic requests are for the Desktop only).
             await handlePick(source)
+        case .pickDisplay:
+            guard let pick = Wire.decode(PickDisplay.self, from: message.payload), catalog.pickDesktop(pick.display) else { return }
+            print("Desktop: \(deviceName(connection)) picked display \(pick.display)")
+            broadcastList()
+            if active == .desktop, !switching { await select(.desktop) }
         case .windowCommand:
             // The bar's long-press menu: the window's own traffic lights, pressed through
             // Accessibility. The staged window's element is already matched; others are looked up.
@@ -1821,6 +1824,22 @@ package final class StreamCoordinator {
     }
 
     /// Every catalog poll (2 s) while a device is connected.
+    /// The displays as the devices last heard them (`displays`, `desktopDisplay`).
+    private var listedDisplays: ([DisplayInfo], UInt32?)?
+
+    /// A display plugged in, unplugged or resized: the devices hear the new list, and the Desktop
+    /// starts again when the display it shows changed (the main one, if it went).
+    private func displaysPolled() {
+        let now = (catalog.displayInfos, catalog.display?.displayID)
+        guard let before = listedDisplays else { listedDisplays = now; return }
+        guard before.0 != now.0 || before.1 != now.1 else { return }
+        listedDisplays = now
+        print("Displays: " + now.0.map { "\($0.name) \(Int($0.width))×\(Int($0.height))" }.joined(separator: ", "))
+        broadcastList()
+        let shown = before.0.first { $0.id == before.1 }, showing = now.0.first { $0.id == now.1 }
+        if active == .desktop, !switching, shown != showing { Task { await select(.desktop) } }
+    }
+
     private func menusPolled() {
         guard menus.hasSubscribers else { return }
         if active == .desktop { menuTargetChanged() }
@@ -2398,7 +2417,8 @@ package final class StreamCoordinator {
                       payload: Wire.encode(WindowList(macName: macName, windows: catalog.infos, active: active, launchID: launchID,
                                                       hostVersion: hostVersion, protocol: SillProtocol.current,
                                                       gestures: TrackpadGesture.generation, clipboard: clipboard.advertised,
-                                                      microphone: microphone.available ? true : nil)))
+                                                      microphone: microphone.available ? true : nil,
+                                                      displays: catalog.displayInfos, desktopDisplay: catalog.display?.displayID)))
     }
 
     private func broadcastList() { server.broadcast(listMessage()) }

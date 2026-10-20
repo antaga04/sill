@@ -63,14 +63,38 @@ public struct WindowList: Codable {
     /// True: this host takes the device's microphone (kind 43) and offers it to its apps as a
     /// microphone. Nil from every host before it, to which a device sends none.
     public var microphone: Bool?
+    /// The host's own displays (never Sill's hidden ones), for a device that picks which the Desktop
+    /// is (kind 40); nil from a host before it, whose Desktop is its main display.
+    public var displays: [DisplayInfo]?
+    /// The one the Desktop shows now.
+    public var desktopDisplay: UInt32?
 
     public init(macName: String, windows: [WindowInfo], active: StreamSource, launchID: String? = nil,
                 hostVersion: String? = nil, protocol: Int? = nil, gestures: Int? = nil, clipboard: Int? = nil,
-                microphone: Bool? = nil) {
+                microphone: Bool? = nil, displays: [DisplayInfo]? = nil, desktopDisplay: UInt32? = nil) {
         self.macName = macName; self.windows = windows; self.active = active; self.launchID = launchID
         self.hostVersion = hostVersion; self.protocol = `protocol`; self.gestures = gestures
         self.clipboard = clipboard; self.microphone = microphone
+        self.displays = displays; self.desktopDisplay = desktopDisplay
     }
+}
+
+/// One of the host's own displays, as a device lists it to pick the Desktop (kind 40).
+public struct DisplayInfo: Codable, Hashable, Sendable {
+    public var id: UInt32
+    public var name: String
+    public var width: Double
+    public var height: Double
+    public var main: Bool?
+    public init(id: UInt32, name: String, width: Double, height: Double, main: Bool? = nil) {
+        self.id = id; self.name = name; self.width = width; self.height = height; self.main = main
+    }
+}
+
+/// Which of the host's displays the Desktop is (kind 40).
+public struct PickDisplay: Codable, Hashable, Sendable {
+    public var display: UInt32
+    public init(display: UInt32) { self.display = display }
 }
 
 public struct LaunchApp: Codable {

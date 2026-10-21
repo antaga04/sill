@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import QuartzCore
 import CoreGraphics
@@ -454,11 +455,46 @@ final class InputInjector {
     private var keys = KeyStrokes()
 
     private func key(hidUsage: UInt16, down: Bool, modifiers: UInt64, from device: KeyStrokes.Device) {
+        if let type = Self.mediaKeys[hidUsage] {
+            mediaKey(type, down: down)
+            return
+        }
         guard let strokes = keys.key(usage: hidUsage, down: down, modifiers: modifiers, from: device) else {
             Stats.shared.bump("in.unknownKey")
             return
         }
         post(strokes)
+    }
+
+    /// The media keys a device sends as keyboard-page usages (Sill Legacy's function row and Watch:
+    /// Linux's hid-input numbers for the media and the volume, Sill's 0xFC and 0xFD for brightness),
+    /// and the NX_KEYTYPE each is on the Mac (IOKit's ev_keymap.h).
+    private static let mediaKeys: [UInt16: Int] = [
+        0xE8: 16,   // play/pause
+        0xEA: 18,   // previous
+        0xEB: 17,   // next
+        0xED: 0,    // volume up
+        0xEE: 1,    // volume down
+        0xEF: 7,    // mute
+        0xFC: 3,    // brightness down
+        0xFD: 2,    // brightness up
+    ]
+
+    /// A media key as a Mac keyboard's own: a system-defined event (subtype 8), which macOS gives to
+    /// Now Playing, the volume or the display whatever app is in front. Carries no modifiers.
+    private func mediaKey(_ type: Int, down: Bool) {
+        if dryRun {
+            if testLog { print("Test input: media key \(type) \(down ? "down" : "up")") }
+            Stats.shared.bump("in.dry")
+            return
+        }
+        let state = down ? 0xA : 0xB
+        guard let event = NSEvent.otherEvent(with: .systemDefined, location: .zero,
+                                             modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(state << 8)),
+                                             timestamp: 0, windowNumber: 0, context: nil, subtype: 8,
+                                             data1: (type << 16) | (state << 8), data2: -1)?.cgEvent else { return }
+        event.post(tap: .cghidEventTap)
+        Stats.shared.bump("in.key")
     }
 
     /// Posts KeyStrokes' events in order, each made from `source` with exactly its flags (a modifier's

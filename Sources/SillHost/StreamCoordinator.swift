@@ -1511,12 +1511,20 @@ package final class StreamCoordinator {
             }
         }
         let server = self.server
-        enc.onEncoded = { data, isKey, parameterSets in
+        enc.onEncodedAt = { data, isKey, parameterSets, pts in
             let now = Date().timeIntervalSince1970
             if let ps = parameterSets {
                 server.broadcast(StreamMessage(kind: .parameterSets, timestamp: now, isKeyframe: true, payload: ps.encoded()))
             }
-            server.broadcast(StreamMessage(kind: .frame, timestamp: now, isKeyframe: isKey, payload: data))
+            // An H.264 device (Sill Legacy) paces its Watch mode by when each frame was captured, so
+            // its frames carry the capture time on the wall clock, without the encoder's own jitter.
+            // HEVC keeps the time it left the encoder, as before.
+            var stamp = now
+            if codec == .h264, pts.isValid, pts.isNumeric {
+                let age = CMClockGetTime(CMClockGetHostTimeClock()).seconds - pts.seconds
+                if age >= 0, age < 1 { stamp = now - age }
+            }
+            server.broadcast(StreamMessage(kind: .frame, timestamp: stamp, isKeyframe: isKey, payload: data))
         }
         if let filter {
             capture.onFrame = { pixelBuffer, pts in enc.encode(pixelBuffer, pts: pts) }

@@ -70,6 +70,9 @@ final class HEVCEncoder {
 
     /// Called on VideoToolbox's callback thread with one access unit (length-prefixed NALs).
     var onEncoded: ((_ data: Data, _ isKeyframe: Bool, _ parameterSets: ParameterSets?) -> Void)?
+    /// `onEncoded` with the presentation time the frame went in with (the capture's, on the host
+    /// clock); called instead of it when set.
+    var onEncodedAt: ((_ data: Data, _ isKeyframe: Bool, _ parameterSets: ParameterSets?, _ pts: CMTime) -> Void)?
     /// The session stopped returning frames. Called once, on the watchdog's queue. The encoder is
     /// dead afterwards: it drops every further frame.
     var onHung: (() -> Void)?
@@ -529,6 +532,7 @@ final class HEVCEncoder {
             CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: raw.baseAddress!)
         }
         guard copied == noErr else { return }
+        if let onEncodedAt { onEncodedAt(data, isKey, ps, CMSampleBufferGetPresentationTimeStamp(sb)); return }
         onEncoded?(data, isKey, ps)
     }
 

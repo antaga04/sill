@@ -201,7 +201,7 @@ package final class FileIdentityStore: IdentityStore {
 
     deinit { close(lock) }
 
-    package var summary: String { "in the test directory \(directory.path)" }
+    package var summary: String { "in \(directory.path)" }
     package var testDirectory: URL? { directory }
 
     package func loadOrCreateKey() throws -> SecKey {

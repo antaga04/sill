@@ -47,7 +47,15 @@ config.shareClipboard = !CommandLine.arguments.contains("--no-clipboard")
 // near the Mac asks (kind 21). `--internet` also admits sources outside this Mac's networks and
 // VPNs. TEST ONLY: SILL_TEST_REMOTE_DIR=<dir> keeps the identity and pairings in a 0700
 // directory, on a --synthetic host only.
+//
+// On this branch (h264-for-old-ipads, for Sill Legacy) a host that streams the real screen is
+// always secure: the home door is TLS with pairing (as --pairing), the remote door is on at 7455
+// (as --remote=7455) and the identity and paired devices are kept between runs
+// (`persistentIdentity`). There is no plain door. Only a --synthetic host (a test pattern) keeps
+// the flags' old meaning, for the test tools.
+let secureByDefault = !CommandLine.arguments.contains("--synthetic")
 let remoteFlag = CommandLine.arguments.first { $0 == "--remote" || $0.hasPrefix("--remote=") }
+    ?? (secureByDefault ? "--remote=7455" : nil)
 let internetFlag = CommandLine.arguments.contains("--internet")
 if internetFlag && remoteFlag == nil {
     print("--internet needs --remote.")
@@ -72,7 +80,17 @@ if let remoteFlag {
 // itself or with the code or link printed here. A throwaway identity (the one --remote uses when
 // both are given); a pairing window is always open, and its code goes to this process's stdout
 // only. Without it the home door stays plain and open, as it always was: a development host.
-let pairingFlag = CommandLine.arguments.contains("--pairing")
+let pairingFlag = CommandLine.arguments.contains("--pairing") || secureByDefault
+
+// Where a secure host keeps its key and paired devices: a 0700 directory of this user's.
+// `SillHost --reset-pairings` deletes it first: a new key (every device pairs again) and no
+// paired devices.
+let persistentIdentity = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/Application Support/SillHost/identity", isDirectory: true)
+if secureByDefault, CommandLine.arguments.contains("--reset-pairings") {
+    try? FileManager.default.removeItem(at: persistentIdentity)
+    print("Pairings reset: a new key; every device pairs again.")
+}
 
 // `SillHost --print-reachability`: the addresses this Mac would give devices away from home, as
 // its Remote Access pane lists them, read once (read-only SystemConfiguration); then exits.
@@ -152,7 +170,11 @@ func startHost() {
 @MainActor
 func makeRemoteAccess() -> RemoteAccess {
     var store: IdentityStore = MemoryIdentityStore()
-    if synthetic, let dir = ProcessInfo.processInfo.environment["SILL_TEST_REMOTE_DIR"], !dir.isEmpty {
+    if secureByDefault {
+        do { store = try FileIdentityStore(directory: persistentIdentity) } catch {
+            print("Pairings are not kept for this run (\(error)): devices pair again next time.")
+        }
+    } else if synthetic, let dir = ProcessInfo.processInfo.environment["SILL_TEST_REMOTE_DIR"], !dir.isEmpty {
         do { store = try FileIdentityStore(directory: URL(fileURLWithPath: dir)) } catch { print("SILL_TEST_REMOTE_DIR=\(dir) ignored: \(error)") }
     }
     let remote = RemoteAccess(store: store)

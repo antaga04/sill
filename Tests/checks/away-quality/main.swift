@@ -91,13 +91,23 @@ do {
     check(!off.validated().shareClipboard && standard.validated().shareClipboard, "validated keeps it either way")
     let made = HostConfig(maxFPS: 60, captureScale: 1, bitrate: 8_000_000, awayBitrate: 4_000_000, awayCaptureScale: 1, prioritizeSpeed: false,
                           virtualDisplay: false, directWireless: false, remoteAccess: false, remotePort: 7455, internetAccess: false,
-                          requirePairing: true, shareClipboard: false)
+                          requirePairing: true, shareClipboard: false, largerText: 2)
     check(!made.shareClipboard, "a HostConfig made with it off has it off (as Sill.app's settings make one)")
+    // Larger text while streaming: off in `standard`, kept within its levels, named in the log, and
+    // never moved by a device's settings change (the Mac's alone).
+    eq(standard.largerText, 0, "standard: larger text off")
+    eq(made.largerText, 2, "a HostConfig made with larger text keeps it")
+    var big = standard; big.largerText = 7
+    eq(big.validated().largerText, 0, "validated: an unknown level is off")
+    big.largerText = 1
+    eq(big.validated().largerText, 1, "validated keeps a known level")
+    eq(standard.changes(to: big), "larger text off → a bit larger", "changes: the larger text level")
     let all = HostSettingsChange(token: 1, maxFPS: 60, bitrate: 25_000_000, captureScale: 1, prioritizeSpeed: true, virtualDisplay: true,
                                  directWireless: true)
     check(!off.applying(all).shareClipboard && !off.applyingAway(all).shareClipboard
           && standard.applying(all).shareClipboard && standard.applyingAway(all).shareClipboard,
           "a device's change never moves it, at home or away")
+    check(made.applying(all).largerText == 2 && made.applyingAway(all).largerText == 2, "a device's change never moves larger text")
 }
 
 // MARK: DeviceSettings

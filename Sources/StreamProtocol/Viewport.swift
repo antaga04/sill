@@ -34,14 +34,21 @@ public struct Viewport: Codable, Hashable {
     /// This device plays the Mac's sound (kind 33, AudioPacket): while any connected device asks,
     /// the host taps everything the Mac plays, mutes it on the Mac and sends it. nil: no sound.
     public var audio: Bool?
+    /// Larger text while streaming: the host lowers the streamed display's resolution ("looks like",
+    /// as System Settings › Displays' Larger Text does) so everything on it is drawn larger in the
+    /// picture. 0 off, 1 a bit larger (about 80 % of the display's points), 2 larger (about 65 %).
+    /// The host takes the largest any connected device asks for, and puts the display back when
+    /// nothing streams from it. nil (every device before 2026-11-02, Sill's own app): the host's own
+    /// setting (`HostConfig.largerText`, SillHost --larger-text).
+    public var largerText: Int?
 
     /// `codec`'s value for H.264.
     public static let h264 = "h264"
 
     public init(width: Double, height: Double, scale: Double?, localCursor: Bool? = nil, fps: Int? = nil,
-                codec: String? = nil, maxPixels: Int? = nil, audio: Bool? = nil) {
+                codec: String? = nil, maxPixels: Int? = nil, audio: Bool? = nil, largerText: Int? = nil) {
         self.width = width; self.height = height; self.scale = scale; self.localCursor = localCursor; self.fps = fps
-        self.codec = codec; self.maxPixels = maxPixels; self.audio = audio
+        self.codec = codec; self.maxPixels = maxPixels; self.audio = audio; self.largerText = largerText
     }
 }
 

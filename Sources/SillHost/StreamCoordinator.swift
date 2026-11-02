@@ -40,6 +40,18 @@ package final class StreamCoordinator {
     /// while there is one, everything the Mac plays is tapped, muted here and sent to them
     /// (SystemAudio). Cleared when the client leaves.
     private var clientAudio: Set<ObjectIdentifier> = []
+    /// Each connected client's larger text level (Viewport.largerText; nil: the host's setting). The
+    /// streamed display is switched to the largest (`wantedLargerText`, DisplayZoom) and put back
+    /// when nothing streams from it. Cleared when the client leaves; a change restarts the pipeline.
+    private var clientLargerText: [ObjectIdentifier: Int?] = [:]
+    private var wantedLargerText: Int {
+        DisplayZoomPolicy.wanted(devices: Array(clientLargerText.values), host: config.largerText)
+    }
+    /// The level the running pipeline's display was switched for (`zoomDisplay`).
+    private var pipelineLargerText = 0
+    /// The devices now want another larger text level than the running pipeline has.
+    private var largerTextChanged: Bool { active != .none && wantedLargerText != pipelineLargerText }
+    let zoom = DisplayZoom()
     /// The SystemAudio (macOS 14.2 and later), made when the first device asks.
     private var systemAudio: AnyObject?
     /// A device's microphone (kind 43) into the loopback device the Mac's apps take as a microphone.
@@ -413,6 +425,7 @@ package final class StreamCoordinator {
                 self.clientFPS[ObjectIdentifier(connection)] = nil
                 self.clientCodec[ObjectIdentifier(connection)] = nil
                 self.clientMaxPixels[ObjectIdentifier(connection)] = nil
+                self.clientLargerText[ObjectIdentifier(connection)] = nil
                 if self.clientAudio.remove(ObjectIdentifier(connection)) != nil { self.audioListenersChanged() }
                 self.settingsArrivals[ObjectIdentifier(connection)] = nil
                 self.settingsIgnoredLineAt[ObjectIdentifier(connection)] = nil
@@ -433,7 +446,7 @@ package final class StreamCoordinator {
                 // A 120 Hz device left a 60 Hz one behind: come down to its rate. The restart takes
                 // the flip too (select's commit), so a device that leaves costs one. The same when
                 // the device that asked for H.264 or a smaller frame leaves.
-                if self.active != .none, self.catalog.clientCount > 1, self.effectiveFPS != self.fps || self.videoChanged {
+                if self.active != .none, self.catalog.clientCount > 1, self.effectiveFPS != self.fps || self.videoChanged || self.largerTextChanged {
                     await self.select(self.active)
                 } else if flipped {
                     await self.applyPending()
@@ -446,7 +459,7 @@ package final class StreamCoordinator {
                 let wasEmpty = self.catalog.clientCount == 0
                 self.catalog.clientCount = count          // the catalog idles itself at 0
                 // Nobody is watching: stop capturing and encoding. The next client picks afresh.
-                if count == 0 { self.viewport = nil; self.clientFPS = [:]; self.clientCodec = [:]; self.clientMaxPixels = [:] }   // the next device starts from scratch
+                if count == 0 { self.viewport = nil; self.clientFPS = [:]; self.clientCodec = [:]; self.clientMaxPixels = [:]; self.clientLargerText = [:] }   // the next device starts from scratch
                 if count == 0 { self.gestureChords.forget() }                 // and did not open a view it could close
                 // On the software encoder, the hardware is checked only while someone watches.
                 if count == 0 { self.stopRecheck() } else { self.devicesPresent(firstArrived: wasEmpty) }
@@ -768,6 +781,7 @@ package final class StreamCoordinator {
         if newFPS != fps || newScale != captureScale { return true }
         if pair.bitrate != bitrate || new.prioritizeSpeed != config.prioritizeSpeed { return true }
         if new.virtualDisplay != config.virtualDisplay, case .window = active { return true }
+        if DisplayZoomPolicy.wanted(devices: Array(clientLargerText.values), host: new.largerText) != pipelineLargerText { return true }
         return false
     }
 
@@ -987,6 +1001,7 @@ package final class StreamCoordinator {
             clientFPS[id] = v.fps ?? 60
             clientCodec[id] = VideoCodec(viewport: v.codec)
             clientMaxPixels[id] = v.maxPixels.flatMap { $0 > 0 ? $0 : nil }
+            clientLargerText[id] = .some(v.largerText.map { DisplayZoomPolicy.clamped($0) })
             if (v.audio == true) != clientAudio.contains(id) {
                 if v.audio == true { clientAudio.insert(id) } else { clientAudio.remove(id) }
                 audioListenersChanged()
@@ -1176,7 +1191,8 @@ package final class StreamCoordinator {
         // A different rate (a ProMotion device joined, Low Power Mode toggled) needs a new capture
         // interval and encoder session: one restart, whatever the source. So does another codec or
         // frame limit (a device that decodes only H.264, or only up to 1080p).
-        if active != .none, effectiveFPS != fps || videoChanged { await select(active); return }
+        // And another larger text level: the display switches before capture starts at its size.
+        if active != .none, effectiveFPS != fps || videoChanged || largerTextChanged { await select(active); return }
         if virtualDisplay, stage.isStaged, case .window(let id) = active {
             // One restart: prepare re-places the window on the same display (the display is only
             // recreated if the envelope grew). The client's identical re-send after a switch is a
@@ -1279,8 +1295,9 @@ package final class StreamCoordinator {
             // no-op when the pick's select commits them first.
             if pendingConfig != nil || (awayWanted != awayRunning && flipWait == nil) { Task { @MainActor in await self.applyPending() } }
             // A stream that did not start (its window gone, capture refused): nothing streams, so
-            // the links have nothing to be judged at, and a window sized for it goes back.
-            if active == .none { judgeLinks(nil); restoreFits(keeping: nil) }
+            // the links have nothing to be judged at, and a window sized for it goes back, and so
+            // does a display switched for it.
+            if active == .none { judgeLinks(nil); restoreFits(keeping: nil); zoom.restore() }
         }
 
         await capture.stop()
@@ -1356,6 +1373,9 @@ package final class StreamCoordinator {
         // frame (WindowRestore, issue #57): another window or the Desktop picked, `.none` when the
         // last device leaves or the stream stops. A restart of the same window keeps it fitted.
         if case .window(let next) = source { restoreFits(keeping: next) } else { restoreFits(keeping: nil) }
+        // Larger text while streaming: the display the source shows at the devices' level, before its
+        // size is read below (any other display Sill switched goes back; `.none` puts it back).
+        await zoomDisplay(for: source)
 
         var filter: SCContentFilter?     // nil only for the synthetic test pattern
         var sourceRect: CGRect? = nil    // set only when the window streams from the virtual display
@@ -1971,6 +1991,7 @@ package final class StreamCoordinator {
         shuttingDown = true
         restoreFits(keeping: nil)
         stage.release()
+        zoom.restore()
     }
 
     /// Who hears this Mac's sound: the server's listeners, and the tap running while there is one.
@@ -1994,6 +2015,38 @@ package final class StreamCoordinator {
     package func releaseKeysForExit() {
         injector.releaseAll()
         restoreFits(keeping: nil)
+        zoom.restore()      // macOS would at the exit anyway (`.forAppOnly`); this says so in the log
+    }
+
+    // MARK: Larger text while streaming (DisplayZoom)
+
+    /// Switches the display `source` shows to the level the devices want (`wantedLargerText`), or
+    /// puts back the one Sill switched: nothing streams, the Desktop is a test pattern, or a window is
+    /// on the virtual display (its own display, sized for the device already). When a mode changed,
+    /// waits for macOS to move the display's windows and looks again, so the capture starts at the
+    /// new size and the display poll takes it as known (no second restart).
+    private func zoomDisplay(for source: StreamSource) async {
+        pipelineLargerText = wantedLargerText
+        var display: CGDirectDisplayID?
+        switch source {
+        case .none:
+            display = nil
+        case .desktop:
+            display = synthetic ? nil : catalog.display?.displayID
+        case .window(let id):
+            if !synthetic, !virtualDisplay, let b = Self.liveBounds(of: id) {
+                var found: CGDirectDisplayID = 0
+                var count: UInt32 = 0
+                if CGGetDisplaysWithPoint(CGPoint(x: b.midX, y: b.midY), 1, &found, &count) == .success, count > 0,
+                   !WindowCatalog.isSills(found) {
+                    display = found
+                }
+            }
+        }
+        guard zoom.apply(level: display == nil ? 0 : pipelineLargerText, to: display) else { return }
+        try? await Task.sleep(for: .milliseconds(600))
+        await catalog.refreshWindows()
+        listedDisplays = (catalog.displayInfos, catalog.display?.displayID)
     }
 
     // MARK: A window Sill sized goes back (WindowRestore, issue #57)

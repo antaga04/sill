@@ -303,6 +303,17 @@ private struct StreamingPane: View {
                 Footnote("Sill streams at these while every connected device is away from home, through a VPN or over the internet, so a slow connection never starts at your home quality. A device away from home changes these, and never your Quality and Resolution above."
                          + (model.coordinator?.status.snapshot.away == true ? " Streaming at these now." : ""))
             }
+            // Larger text while streaming (DisplayZoomPolicy): the streamed display at fewer points
+            // while a device watches it. The level for a device that does not ask for its own.
+            Section {
+                Picker("Larger text while streaming", selection: $settings.config.largerText) {
+                    ForEach(Array(DisplayZoomPolicy.levels), id: \.self) { level in
+                        Text(DisplayZoomPolicy.title(level: level)).tag(level)
+                    }
+                }
+            } footer: {
+                Footnote("While a device watches it, the streamed display switches to a lower resolution, as Larger Text in Displays settings does, so text and windows show larger on the device. It goes back when streaming stops. Windows on it are moved and resized to fit, as when you change the resolution yourself.")
+            }
             Section {
                 Toggle("Prioritize encoding speed", isOn: $settings.config.prioritizeSpeed)
             } footer: {

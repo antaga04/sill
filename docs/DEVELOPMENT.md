@@ -139,6 +139,7 @@ swift run -c release SillHost Safari                 # optional: preselect a mat
 swift run -c release SillHost --virtual-display      # each streamed window on its own HiDPI display; Ctrl-C restores it
 swift run -c release SillHost --direct-wireless      # also over peer-to-peer Wi-Fi, for a device with no shared network
 swift run -c release SillHost --no-clipboard         # share nothing of the clipboard with devices (on by default, as in Sill.app)
+swift run -c release SillHost --larger-text=2        # the streamed display at a lower resolution while a device watches (1 a bit, 2 more)
 swift run -c release SillHost --synthetic            # the Desktop streams a test pattern; no Screen Recording needed
 SILL_TEST_PATTERN=picture:/path/to.jpg swift run -c release SillHost --synthetic   # the Desktop a still picture instead (TEST ONLY)
 swift run -c release SillHost --remote               # the remote door for this run, on any free port (--remote=PORT)

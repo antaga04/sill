@@ -40,6 +40,21 @@ config.directWireless = CommandLine.arguments.contains("--direct-wireless")
 // A --synthetic host shares a pasteboard of its own, never this Mac's clipboard.
 config.shareClipboard = !CommandLine.arguments.contains("--no-clipboard")
 
+// `SillHost --larger-text[=1|2]`: while a device watches it, the streamed display switches to a
+// lower resolution (fewer points, its shape kept, as Displays' Larger Text does), so text and
+// windows show larger on the device; it goes back when nothing streams from it, and when SillHost
+// ends, however it ends. 1 (the flag alone) a bit larger, about 80 % of the display's points; 2
+// larger, about 65 %. Off by default. A device that asks for a level itself (Sill Legacy's
+// Settings) gets its own; Sill's own app takes this one.
+if let flag = CommandLine.arguments.first(where: { $0 == "--larger-text" || $0.hasPrefix("--larger-text=") }) {
+    let value = flag == "--larger-text" ? "1" : String(flag.dropFirst("--larger-text=".count))
+    guard let level = Int(value), DisplayZoomPolicy.levels.contains(level) else {
+        print("--larger-text=LEVEL takes 0 (off), 1 (a bit larger) or 2 (larger).")
+        exit(2)
+    }
+    config.largerText = level
+}
+
 // `SillHost --remote[=PORT]`: the remote door for this run (TLS 1.3, paired devices only), on
 // PORT or any free port, so it never collides with Sill.app's 7455. A new in-memory identity and
 // trust list every run. A pairing window is always open (a fresh one after each use or expiry);

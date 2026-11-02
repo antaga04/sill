@@ -55,11 +55,17 @@ package struct HostConfig: Equatable, Sendable {
     /// HostSettingsChange, DeviceSettings.accepted, `applying` and `restartNeeded`, so no device turns
     /// it on. Applied at once (`StreamCoordinator.setTarget`), not between pipelines.
     package var shareClipboard: Bool
+    /// Larger text while streaming (DisplayZoomPolicy): the streamed display switched to fewer points
+    /// while a device watches it, so everything on it is drawn larger in the picture. 0 off, 1 a bit
+    /// larger, 2 larger. The level for a device that does not ask for one itself (Sill's own app);
+    /// Sill Legacy sends its own (Viewport.largerText). The Mac's alone, like Share clipboard: absent
+    /// from StreamSettings and HostSettingsChange. Taken between pipelines, by one restart.
+    package var largerText: Int
 
     /// Every knob is required, so the compiler finds each place that builds one when a knob is added.
     package init(maxFPS: Int, captureScale: CGFloat, bitrate: Int, awayBitrate: Int, awayCaptureScale: CGFloat,
                  prioritizeSpeed: Bool, virtualDisplay: Bool, directWireless: Bool, remoteAccess: Bool, remotePort: Int,
-                 internetAccess: Bool, requirePairing: Bool, shareClipboard: Bool) {
+                 internetAccess: Bool, requirePairing: Bool, shareClipboard: Bool, largerText: Int) {
         self.maxFPS = maxFPS
         self.captureScale = captureScale
         self.bitrate = bitrate
@@ -73,6 +79,7 @@ package struct HostConfig: Equatable, Sendable {
         self.internetAccess = internetAccess
         self.requirePairing = requirePairing
         self.shareClipboard = shareClipboard
+        self.largerText = largerText
     }
 
     /// The spike's knobs, formerly the `let`s at the top of the CLI's main.swift, and the app's
@@ -88,7 +95,7 @@ package struct HostConfig: Equatable, Sendable {
                                              awayBitrate: 4_000_000, awayCaptureScale: 1,
                                              prioritizeSpeed: false, virtualDisplay: false, directWireless: false,
                                              remoteAccess: false, remotePort: 7455, internetAccess: false,
-                                             requirePairing: true, shareClipboard: true)
+                                             requirePairing: true, shareClipboard: true, largerText: 0)
 
     /// The remote door's port when none is set.
     package static let defaultRemotePort = 7455
@@ -105,13 +112,14 @@ package struct HostConfig: Equatable, Sendable {
         c.awayCaptureScale = awayCaptureScale >= 1.5 ? 2 : 1
         c.awayBitrate = min(max(awayBitrate, 1_000_000), 200_000_000)
         if remotePort != 0 && !(1024...65535).contains(remotePort) { c.remotePort = Self.defaultRemotePort }
+        c.largerText = DisplayZoomPolicy.clamped(largerText)
         return c
     }
 
     /// What differs from `new`, for the log: "frame rate limit 120 → 60 fps, bitrate 15 → 8 Mbps
     /// per 60 fps, Retina → points, away bitrate 4 → 15 Mbps per 60 fps, away points → Retina, speed
     /// off → on, virtual display off → on, direct wireless off → on, remote access off → on, remote
-    /// port 7455 → 7460, internet access off → on, require pairing on → off, share clipboard on → off".
+    /// port 7455 → 7460, internet access off → on, require pairing on → off, share clipboard on → off, larger text off → a bit larger".
     package func changes(to new: HostConfig) -> String {
         func onOff(_ b: Bool) -> String { b ? "on" : "off" }
         func scaleName(_ s: CGFloat) -> String { s >= 1.5 ? "Retina" : "points" }
@@ -129,6 +137,9 @@ package struct HostConfig: Equatable, Sendable {
         if internetAccess != new.internetAccess { parts.append("internet access \(onOff(internetAccess)) → \(onOff(new.internetAccess))") }
         if requirePairing != new.requirePairing { parts.append("require pairing \(onOff(requirePairing)) → \(onOff(new.requirePairing))") }
         if shareClipboard != new.shareClipboard { parts.append("share clipboard \(onOff(shareClipboard)) → \(onOff(new.shareClipboard))") }
+        if largerText != new.largerText {
+            parts.append("larger text \(DisplayZoomPolicy.name(level: largerText)) → \(DisplayZoomPolicy.name(level: new.largerText))")
+        }
         return parts.isEmpty ? "no change" : parts.joined(separator: ", ")
     }
 
